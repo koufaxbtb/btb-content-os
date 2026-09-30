@@ -1,7 +1,6 @@
 # Install
 
-Add these files to `koufaxbtb/btb-content-os` on `main` and keep the
-existing README.
+Use Python 3.10+ with its built-in SQLite support. No additional dependencies are required.
 
 -   AGENTS.md
 -   docs/strategy.md
@@ -9,9 +8,8 @@ existing README.
 -   data/content_schema.csv
 -   data/seed_content.csv
 
-## First Codex task
+## Setup
 
-Implement Phase 1 only. Validate the content schema, choose a simple
-local persistence layer, import seed data without changing unknown
-values to zero, add validation/tests, and document how to add a new post
-and analytics snapshot. Do not build the dashboard yet.
+From the repository root, run `python content_os.py import-seed`, then
+`python -m unittest discover -s tests -v`. On Windows, `py -3` can replace
+`python`. See [README](README.md) and [workflow](docs/data-model.md).
