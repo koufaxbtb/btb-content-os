@@ -15,9 +15,16 @@ Build a data-driven system that learns from every piece of content we publish an
 - Trend Radar
 - Culture & Audio Engine
 
-## Implemented: Phase 1 only
+## Implemented: Phase 1 and provider ingestion
 
 Local content records, seed import, analytics snapshot history, validation, and tests. No dashboard or publishing integration.
+
+Provider ingestion discovers Instagram Reels and appends analytics from normalized connector responses. See [ingestion contract and commands](docs/ingestion.md). No live connector credentials or scheduled job are configured.
+
+```powershell
+python content_os.py sync-content --provider instagram connector-response.json
+python content_os.py sync-analytics --provider instagram connector-response.json
+```
 
 Requires Python 3.10+; no third-party packages, server, or installation step. SQLite is included with Python and provides transactions, foreign keys, and inspectable local storage with minimal infrastructure. JSON payloads preserve supplied numeric representations; null means unknown.
 

@@ -13,8 +13,10 @@ ROOT = Path(__file__).resolve().parent
 COUNTS = 'views reach likes comments shares saves total_interactions follows_generated profile_visits original_audio_uses'.split()
 METRICS = COUNTS + ['skip_rate_pct', 'avg_watch_time_seconds']
 SNAPSHOT_FIELDS = METRICS + ['data_captured_at', 'data_source', 'notes']
+INGESTION_FIELDS = ['data_fetched_at', 'metrics_observed_at', 'checkpoint', 'freshness']
 FIELDS = 'content_id creative_id platform platform_media_id published_at title series content_lane format hook_text script_text reusable_audio_line target_emotion duration_seconds cta_type editing_notes source_or_topic experiment_id views reach skip_rate_pct avg_watch_time_seconds likes comments shares saves total_interactions follows_generated profile_visits original_audio_uses data_captured_at data_source notes'.split()
 CONTENT_FIELDS = [f for f in FIELDS if f not in SNAPSHOT_FIELDS]
+SNAPSHOT_FIELDS += INGESTION_FIELDS
 
 
 def timestamp(value, field):
@@ -57,8 +59,12 @@ def validate(record, allowed, required):
                 raise ValueError('duration_seconds: must be positive')
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f'{field}: use nonempty text or null')
-    for field in ['published_at', 'data_captured_at']:
+    for field in ['published_at', 'data_captured_at', 'data_fetched_at', 'metrics_observed_at']:
         timestamp(record.get(field), field)
+    if record.get('checkpoint') not in (None, '1h', '6h', '24h', '72h', '7d'):
+        raise ValueError('Invalid checkpoint')
+    if record.get('freshness') not in (None, 'fresh', 'cached', 'stale', 'unknown'):
+        raise ValueError('Invalid freshness')
 
 
 def connect(path):
@@ -69,6 +75,9 @@ def connect(path):
         digest TEXT PRIMARY KEY, source_name TEXT NOT NULL, raw_bytes BLOB NOT NULL);
     CREATE TABLE IF NOT EXISTS content (
         content_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+    CREATE UNIQUE INDEX IF NOT EXISTS content_external_id ON content(
+        json_extract(payload, '$.platform'), json_extract(payload, '$.platform_media_id'))
+        WHERE json_extract(payload, '$.platform_media_id') IS NOT NULL;
     CREATE TABLE IF NOT EXISTS snapshots (
         snapshot_id INTEGER PRIMARY KEY, content_id TEXT NOT NULL REFERENCES content,
         payload TEXT NOT NULL, raw_input TEXT NOT NULL,
@@ -117,7 +126,7 @@ def import_seed(db, seed, schema):
                 raise ValueError('Malformed CSV row width')
             record = dict(zip(FIELDS, [None if cell == '' else cell for cell in cells]))
             add_content(db, {f: record[f] for f in CONTENT_FIELDS})
-            add_snapshot(db, record['content_id'], {f: record[f] for f in SNAPSHOT_FIELDS},
+            add_snapshot(db, record['content_id'], {f: record[f] for f in SNAPSHOT_FIELDS if f not in INGESTION_FIELDS},
                          json.dumps(dict(zip(FIELDS, cells))), historical=True)
     return len(rows) - 1
 
@@ -135,6 +144,10 @@ def main():
     snap.add_argument('content_id')
     snap.add_argument('file')
     sub.add_parser('export')
+    for command in ['sync-content', 'sync-analytics']:
+        sync = sub.add_parser(command)
+        sync.add_argument('--provider', choices=['instagram'], required=True)
+        sync.add_argument('file', help='Normalized provider response JSON')
     args = parser.parse_args()
     try:
         with connect(args.db) as db:
@@ -148,6 +161,11 @@ def main():
                 else:
                     add_snapshot(db, args.content_id, record, raw)
                 print('Added successfully')
+            elif args.command.startswith('sync-'):
+                from providers import InstagramProvider
+                from ingestion import sync_provider
+                provider = InstagramProvider.from_file(args.file)
+                print(json.dumps(sync_provider(db, provider, analytics=args.command == 'sync-analytics')))
             else:
                 print(json.dumps({
                     'content': [json.loads(r[0]) for r in db.execute('SELECT payload FROM content ORDER BY content_id')],
